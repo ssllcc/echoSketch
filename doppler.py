@@ -7,7 +7,7 @@ import os
 import matplotlib.pyplot as plt
 from collections import deque
 
-from send_commands import send_copy_command, send_paste_command
+from send_commands import send_copy_command, send_paste_command, send_youtube_command
 
 # SSH configuration
 MAC_USER = "candyliu"
@@ -44,6 +44,9 @@ class DopplerTracker:
         self.cooldown_sec = 10  # in seconds
         self.cooldown_active = False
         self.last_cooldown_print = 0
+
+        self.movement_sequence = []  # Stores recent movement directions
+        self.sequence_length = 3     # Length of the sequence to detect
     
     def bandpass_filter(self, data, lowcut, highcut):
         """Apply a bandpass filter to isolate frequencies of interest"""
@@ -173,7 +176,7 @@ class DopplerTracker:
                     self.last_direction = direction
                 
                 # Only report if we have consistent readings
-                if self.consistent_count == 3 and (current_time - self.last_action_time) >= self.cooldown_sec:
+                if self.consistent_count == 20 and (current_time - self.last_action_time) >= self.cooldown_sec:
                     self.last_action_time = current_time  # Start cooldown
                     # Clear the terminal and print the current state
                     # os.system('clear' if os.name == 'posix' else 'cls')
@@ -183,7 +186,22 @@ class DopplerTracker:
                     elif direction == "away":
                         print("Detected consistent movement AWAY — triggering copy (Cmd + C)")
                         send_copy_command(MAC_USER, MAC_IP)
-                    
+                
+                # Add the direction to the movement sequence
+                if len(self.movement_sequence) == 0 or self.movement_sequence[-1] != direction:
+                    self.movement_sequence.append(direction)
+                if len(self.movement_sequence) > self.sequence_length:
+                    self.movement_sequence.pop(0)  # Keep only the last 3 movements
+
+                print(f'movement_sequence: {self.movement_sequence}')
+
+                # Check for "down-up-down" sequence
+                if self.movement_sequence == ["toward", "away", "toward"]:
+                    print("Detected 'down-up-down' action!")
+                    # Trigger your custom action here
+                    self.movement_sequence = []  # Reset the sequence after detection
+                    send_youtube_command(MAC_USER, MAC_IP)
+
             else:
                 # Reset consistent count for no significant movement
                 self.consistent_count = 0

@@ -21,3 +21,15 @@ def send_paste_command(mac_user, mac_ip):
         print("Paste command sent successfully.")
     except subprocess.CalledProcessError as e:
         print("Failed to send paste command.", e)
+
+def send_youtube_command(mac_user, mac_ip):
+    ssh_command = (
+        f'ssh {mac_user}@{mac_ip} '
+        '"osascript -e \'tell application \\"Google Chrome\\" to open location \\"https://www.youtube.com\\"\' "'
+    )
+
+    try:
+        subprocess.run(ssh_command, shell=True, check=True)
+        print("Direct YouTube command sent successfully.")
+    except subprocess.CalledProcessError as e:
+        print("Failed to send Direct YouTube command.", e)
