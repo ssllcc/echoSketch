@@ -7,7 +7,7 @@ import os
 import matplotlib.pyplot as plt
 from collections import deque
 
-from send_commands import send_copy_command, send_paste_command, send_youtube_command
+from send_commands import send_copy_command, send_paste_command, send_youtube_command, send_volume_up_command, send_volume_down_command
 
 # SSH configuration
 MAC_USER = "candyliu"
@@ -47,6 +47,9 @@ class DopplerTracker:
 
         self.movement_sequence = []  # Stores recent movement directions
         self.sequence_length = 3     # Length of the sequence to detect
+
+        self.tap = 0
+        self.mode = 0
     
     def bandpass_filter(self, data, lowcut, highcut):
         """Apply a bandpass filter to isolate frequencies of interest"""
@@ -108,6 +111,7 @@ class DopplerTracker:
         if len(indata) == len(self.input_buffer):
             self.input_buffer[:] = indata[:, 0]
             self.buffer_ready = True
+
         
         # Generate and output tone
         t = np.arange(frames) / self.RATE
@@ -128,7 +132,20 @@ class DopplerTracker:
         
         # Make a copy of the buffer to avoid race conditions
         data = np.copy(self.input_buffer)
-        
+        threshold = 0.75
+        max_amplitudes = np.max(np.abs(data), axis=0)
+        exceeding_signals = np.where(max_amplitudes > threshold)[0]
+        if len(exceeding_signals) > 0:
+            # mic1_channel = exceeding_signals[0]
+            print(f"Tap")
+            if (self.tap == 0):
+                self.tap = 6
+            elif (self.tap <=2):
+                self.tap = 0
+                self.mode = (self.mode+1)%2
+                print("DOUBLE TAP")
+        if self.tap > 0:
+            self.tap = self.tap-1
         # Apply bandpass filter to focus on frequencies of interest
         filtered_data = self.bandpass_filter(
             data, 
@@ -175,17 +192,28 @@ class DopplerTracker:
                     self.consistent_count = 1
                     self.last_direction = direction
                 
-                # Only report if we have consistent readings
-                if self.consistent_count == 20 and (current_time - self.last_action_time) >= self.cooldown_sec:
-                    self.last_action_time = current_time  # Start cooldown
-                    # Clear the terminal and print the current state
-                    # os.system('clear' if os.name == 'posix' else 'cls')
-                    if direction == "toward":
-                        print("Detected consistent movement TOWARD — triggering paste (Cmd + V)")
-                        send_paste_command(MAC_USER, MAC_IP)
-                    elif direction == "away":
-                        print("Detected consistent movement AWAY — triggering copy (Cmd + C)")
-                        send_copy_command(MAC_USER, MAC_IP)
+                if self.mode ==0:
+                    # Only report if we have consistent readings
+                    if self.consistent_count == 20 and (current_time - self.last_action_time) >= self.cooldown_sec:
+                        self.last_action_time = current_time  # Start cooldown
+                        # Clear the terminal and print the current state
+                        # os.system('clear' if os.name == 'posix' else 'cls')
+                        if direction == "toward":
+                            print("Detected consistent movement TOWARD — triggering paste (Cmd + V)")
+                            send_paste_command(MAC_USER, MAC_IP)
+                        elif direction == "away":
+                            print("Detected consistent movement AWAY — triggering copy (Cmd + C)")
+                            send_copy_command(MAC_USER, MAC_IP)
+                elif self.mode ==1:
+                    if self.consistent_count == 5: # and (current_time - self.last_action_time) >= self.cooldown_sec:
+                        # self.last_action_time = current_time  # Start cooldown
+                        self.consistent_count = 0
+                        if direction == "toward":
+                            print("Detected consistent movement TOWARD — triggering decrease volume")
+                            send_volume_down_command(MAC_USER, MAC_IP)
+                        elif direction == "away":
+                            print("Detected consistent movement AWAY — triggering increase volume")
+                            send_volume_up_command(MAC_USER, MAC_IP)
                 
                 # Add the direction to the movement sequence
                 if len(self.movement_sequence) == 0 or self.movement_sequence[-1] != direction:
@@ -193,7 +221,7 @@ class DopplerTracker:
                 if len(self.movement_sequence) > self.sequence_length:
                     self.movement_sequence.pop(0)  # Keep only the last 3 movements
 
-                print(f'movement_sequence: {self.movement_sequence}')
+                print(f'movement_sequence: {self.mode}{self.movement_sequence}{self.consistent_count}')
 
                 # Check for "down-up-down" sequence
                 if self.movement_sequence == ["toward", "away", "toward"]:
@@ -209,7 +237,7 @@ class DopplerTracker:
     
     def start_stream(self):
         """Set up and start the audio stream"""
-        sd.default.device = (2, 1) 
+        sd.default.device = (2, 1)
         
         self.stream = sd.Stream(
             samplerate=self.RATE,
@@ -279,7 +307,7 @@ if __name__ == "__main__":
     # Install necessary packages if not already installed
     try:
         import sounddevice
-        import numpy
+        import numpy as np
         import scipy
     except ImportError:
         print("\nInstalling required packages...")
